@@ -4,6 +4,14 @@
 
 Fluxer channel plugin for OpenClaw, built on top of `@fluxerjs/core`.
 
+## Experimental disclaimer
+
+This project is **highly experimental** and provided **"as is"**.
+By using it, you accept all risk and are solely responsible for any outcomes,
+including service interruptions, data issues, policy violations, account actions,
+or other repercussions. The author/maintainer is **not liable** for any damages
+or consequences resulting from use of this software.
+
 ## Current status
 
 Installable local plugin scaffold with:
@@ -97,3 +105,7 @@ npm install
 npm run typecheck
 npm test
 ```
+
+## License
+
+MIT — see [LICENSE](LICENSE).
