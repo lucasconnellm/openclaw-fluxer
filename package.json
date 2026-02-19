@@ -1,0 +1,60 @@
+{
+  "name": "@lucasconnellm/openclaw-fluxer",
+  "version": "0.1.0",
+  "description": "OpenClaw Fluxer channel plugin powered by @fluxerjs/core",
+  "type": "module",
+  "license": "MIT",
+  "private": false,
+  "files": [
+    "index.ts",
+    "openclaw.plugin.json",
+    "src",
+    "README.md",
+    "docs"
+  ],
+  "dependencies": {
+    "@fluxerjs/core": "^1.1.9",
+    "zod": "^4.3.6"
+  },
+  "peerDependencies": {
+    "openclaw": ">=2026.2.17"
+  },
+  "devDependencies": {
+    "openclaw": "^2026.2.17",
+    "typescript": "^5.9.2",
+    "vitest": "^3.2.4"
+  },
+  "scripts": {
+    "test": "vitest run --passWithNoTests",
+    "typecheck": "tsc --noEmit"
+  },
+  "openclaw": {
+    "channel": {
+      "id": "fluxer",
+      "label": "Fluxer",
+      "selectionLabel": "Fluxer (@fluxerjs/core)",
+      "docsPath": "/channels/fluxer",
+      "docsLabel": "fluxer",
+      "blurb": "Fluxer channel integration powered by @fluxerjs/core.",
+      "aliases": [
+        "fx"
+      ],
+      "order": 75,
+      "quickstartAllowFrom": true
+    },
+    "install": {
+      "npmSpec": "@lucasconnellm/openclaw-fluxer",
+      "localPath": ".",
+      "defaultChoice": "npm"
+    }
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "keywords": [
+    "openclaw",
+    "plugin",
+    "fluxer",
+    "bot"
+  ]
+}

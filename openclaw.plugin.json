@@ -1,0 +1,9 @@
+{
+  "id": "fluxer",
+  "channels": ["fluxer"],
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {}
+  }
+}
