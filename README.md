@@ -80,7 +80,7 @@ You can also use env vars (default account only):
 - ✅ message update + delete inbound events captured
 - ✅ reaction add inbound event captured
 - ✅ media attachment URLs passed inbound
-- ⚠️ outbound media currently URL/caption fallback (native file send wiring not finished)
+- ✅ outbound media supports native URL attachments via @fluxerjs/core file payloads
 - ⚠️ outbound reactions not wired yet
 - ⚠️ thread routing parity not complete
 

@@ -20,6 +20,15 @@ export type FluxerSendTextResult = {
   timestamp?: number;
 };
 
+export type FluxerSendMediaInput = {
+  target: string;
+  text?: string;
+  mediaUrl: string;
+  replyToId?: string;
+  accountId?: string;
+  abortSignal?: AbortSignal;
+};
+
 export type FluxerProbeResult = BaseProbeResult<string | null> & {
   checkedAt: number;
   latencyMs?: number;
@@ -38,6 +47,7 @@ export type FluxerMonitorInboundParams = {
 
 export type FluxerClient = {
   sendText: (input: FluxerSendTextInput) => Promise<FluxerSendTextResult>;
+  sendMedia: (input: FluxerSendMediaInput) => Promise<FluxerSendTextResult>;
   probe: (params: { timeoutMs: number; abortSignal?: AbortSignal }) => Promise<FluxerProbeResult>;
   monitorInbound: (params: FluxerMonitorInboundParams) => Promise<void>;
 };
@@ -296,6 +306,20 @@ function parseTarget(to: string): { kind: "channel" | "group" | "user"; id: stri
   return { kind: "channel", id };
 }
 
+function inferFilenameFromUrl(rawUrl: string): string {
+  try {
+    const parsed = new URL(rawUrl);
+    const pathname = parsed.pathname;
+    const base = pathname.split("/").filter(Boolean).pop();
+    if (base && base.trim()) {
+      return decodeURIComponent(base);
+    }
+  } catch {
+    // ignore URL parse errors; fallback below
+  }
+  return "attachment";
+}
+
 function resolveChatType(message: Message): "direct" | "group" | "channel" {
   const channel = message.channel;
   if (channel?.isDM()) {
@@ -376,6 +400,76 @@ export function createFluxerClient(config: FluxerClientConfig): FluxerClient {
               }
             } else {
               sent = await client.channels.send(channelId, body);
+            }
+
+            return {
+              messageId: sent.id,
+              chatId: sent.channelId,
+              timestamp: sent.createdAt?.getTime?.(),
+            };
+          } catch (error) {
+            throw formatError(error);
+          } finally {
+            await client.destroy().catch(() => undefined);
+          }
+        },
+        { abortSignal: input.abortSignal },
+      );
+    },
+
+    sendMedia: async (input) => {
+      const mediaUrl = input.mediaUrl.trim();
+      if (!mediaUrl) {
+        throw new Error("Fluxer sendMedia requires mediaUrl");
+      }
+
+      return withRetry(
+        async () => {
+          const client = createCoreClient(config);
+          try {
+            const target = parseTarget(input.target);
+            const payload = {
+              content: input.text?.trim() || undefined,
+              files: [
+                {
+                  name: inferFilenameFromUrl(mediaUrl),
+                  url: mediaUrl,
+                },
+              ],
+            };
+
+            if (target.kind === "user") {
+              const user = await client.users.fetch(target.id);
+              const dm = await user.createDM();
+              let sent;
+              if (input.replyToId) {
+                try {
+                  const original = await client.fetchMessage(dm.id, input.replyToId);
+                  sent = await original.reply(payload);
+                } catch {
+                  sent = await dm.send(payload);
+                }
+              } else {
+                sent = await dm.send(payload);
+              }
+              return {
+                messageId: sent.id,
+                chatId: sent.channelId,
+                timestamp: sent.createdAt?.getTime?.(),
+              };
+            }
+
+            const channelId = target.id;
+            let sent;
+            if (input.replyToId) {
+              try {
+                const original = await client.fetchMessage(channelId, input.replyToId);
+                sent = await original.reply(payload);
+              } catch {
+                sent = await client.channels.send(channelId, payload);
+              }
+            } else {
+              sent = await client.channels.send(channelId, payload);
             }
 
             return {

@@ -12,16 +12,7 @@ export type SendFluxerOpts = {
   createClient?: (config: FluxerClientConfig) => FluxerClient;
 };
 
-export async function sendMessageFluxer(
-  to: string,
-  text: string,
-  opts: SendFluxerOpts = {},
-): Promise<{
-  messageId: string;
-  chatId: string;
-  timestamp?: number;
-  meta?: Record<string, unknown>;
-}> {
+function resolveClientDeps(opts: SendFluxerOpts) {
   const runtime = getFluxerRuntime();
   const cfg = opts.cfg ?? runtime.config.loadConfig();
   const account = resolveFluxerAccount({
@@ -37,11 +28,6 @@ export async function sendMessageFluxer(
     );
   }
 
-  const target = normalizeFluxerMessagingTarget(to);
-  if (!target) {
-    throw new Error("Fluxer target is required (expected channel:<id> | user:<id> | group:<id>)");
-  }
-
   const clientFactory = opts.createClient ?? createFluxerClient;
   const client =
     opts.client ??
@@ -51,6 +37,26 @@ export async function sendMessageFluxer(
       apiToken,
       authScheme: account.config.authScheme,
     });
+
+  return { runtime, cfg, account, client };
+}
+
+export async function sendMessageFluxer(
+  to: string,
+  text: string,
+  opts: SendFluxerOpts = {},
+): Promise<{
+  messageId: string;
+  chatId: string;
+  timestamp?: number;
+  meta?: Record<string, unknown>;
+}> {
+  const { runtime, account, client } = resolveClientDeps(opts);
+
+  const target = normalizeFluxerMessagingTarget(to);
+  if (!target) {
+    throw new Error("Fluxer target is required (expected channel:<id> | user:<id> | group:<id>)");
+  }
 
   const result = await client.sendText({
     target,
@@ -72,6 +78,57 @@ export async function sendMessageFluxer(
     timestamp: result.timestamp,
     meta: {
       target,
+      accountId: account.accountId,
+    },
+  };
+}
+
+export async function sendMediaFluxer(
+  params: {
+    to: string;
+    text?: string;
+    mediaUrl: string;
+  },
+  opts: SendFluxerOpts = {},
+): Promise<{
+  messageId: string;
+  chatId: string;
+  timestamp?: number;
+  meta?: Record<string, unknown>;
+}> {
+  const { runtime, account, client } = resolveClientDeps(opts);
+
+  const target = normalizeFluxerMessagingTarget(params.to);
+  if (!target) {
+    throw new Error("Fluxer target is required (expected channel:<id> | user:<id> | group:<id>)");
+  }
+
+  const mediaUrl = params.mediaUrl.trim();
+  if (!mediaUrl) {
+    throw new Error("Fluxer mediaUrl is required");
+  }
+
+  const result = await client.sendMedia({
+    target,
+    text: params.text,
+    mediaUrl,
+    replyToId: opts.replyToId,
+    accountId: account.accountId,
+  });
+
+  runtime.channel.activity.record({
+    channel: "fluxer",
+    accountId: account.accountId,
+    direction: "outbound",
+  });
+
+  return {
+    messageId: result.messageId,
+    chatId: result.chatId,
+    timestamp: result.timestamp,
+    meta: {
+      target,
+      mediaUrl,
       accountId: account.accountId,
     },
   };

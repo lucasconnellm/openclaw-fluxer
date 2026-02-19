@@ -22,7 +22,7 @@ import { monitorFluxerProvider } from "./monitor.js";
 import { looksLikeFluxerTargetId, normalizeFluxerMessagingTarget } from "./normalize.js";
 import { probeFluxer } from "./probe.js";
 import { getFluxerRuntime } from "./runtime.js";
-import { sendMessageFluxer } from "./send.js";
+import { sendMediaFluxer, sendMessageFluxer } from "./send.js";
 
 const meta = {
   id: "fluxer",
@@ -229,11 +229,25 @@ export const fluxerPlugin: ChannelPlugin<ResolvedFluxerAccount> = {
       });
       return { channel: "fluxer", ...result };
     },
-    sendMedia: async ({ to, text, mediaUrl, accountId }) => {
-      const message = mediaUrl ? `${text}\n\nAttachment: ${mediaUrl}` : text;
-      const result = await sendMessageFluxer(to, message, {
-        accountId: accountId ?? undefined,
-      });
+    sendMedia: async ({ to, text, mediaUrl, accountId, replyToId }) => {
+      if (!mediaUrl) {
+        const result = await sendMessageFluxer(to, text, {
+          accountId: accountId ?? undefined,
+          replyToId: replyToId ?? undefined,
+        });
+        return { channel: "fluxer", ...result };
+      }
+      const result = await sendMediaFluxer(
+        {
+          to,
+          text,
+          mediaUrl,
+        },
+        {
+          accountId: accountId ?? undefined,
+          replyToId: replyToId ?? undefined,
+        },
+      );
       return { channel: "fluxer", ...result };
     },
   },
