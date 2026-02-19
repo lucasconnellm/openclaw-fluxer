@@ -19,6 +19,7 @@ jobs:
           node-version: 22
           registry-url: 'https://registry.npmjs.org'
       - run: npm ci
+      - run: npm test
 
       - name: Verify tag matches package.json version
         run: |
