@@ -6,6 +6,7 @@ on:
 
 jobs:
   build:
+    environment: release
     runs-on: ubuntu-latest
     permissions:
       contents: read
