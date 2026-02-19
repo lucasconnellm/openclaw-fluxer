@@ -1,4 +1,6 @@
-# @lucasconnellm/openclaw-fluxer
+![Openclaw Fluxer Plugin banner](docs/assets/openclaw-fluxer-banner.jpg)
+
+# Openclaw Fluxer Plugin
 
 Fluxer channel plugin for OpenClaw, built on top of `@fluxerjs/core`.
 
