@@ -36,8 +36,17 @@ export type FluxerMonitorInboundParams = {
   onDisconnected?: (info?: { reason?: string }) => void;
 };
 
+export type FluxerReactInput = {
+  channelId: string;
+  messageId: string;
+  emoji: string;
+  remove?: boolean;
+  abortSignal?: AbortSignal;
+};
+
 export type FluxerClient = {
   sendText: (input: FluxerSendTextInput) => Promise<FluxerSendTextResult>;
+  react: (input: FluxerReactInput) => Promise<void>;
   probe: (params: { timeoutMs: number; abortSignal?: AbortSignal }) => Promise<FluxerProbeResult>;
   monitorInbound: (params: FluxerMonitorInboundParams) => Promise<void>;
 };
@@ -383,6 +392,40 @@ export function createFluxerClient(config: FluxerClientConfig): FluxerClient {
               chatId: sent.channelId,
               timestamp: sent.createdAt?.getTime?.(),
             };
+          } catch (error) {
+            throw formatError(error);
+          } finally {
+            await client.destroy().catch(() => undefined);
+          }
+        },
+        { abortSignal: input.abortSignal },
+      );
+    },
+
+    react: async (input) => {
+      const channelId = input.channelId.trim();
+      const messageId = input.messageId.trim();
+      const emoji = input.emoji.trim();
+      if (!channelId) {
+        throw new Error("Fluxer react requires channelId");
+      }
+      if (!messageId) {
+        throw new Error("Fluxer react requires messageId");
+      }
+      if (!emoji) {
+        throw new Error("Fluxer react requires emoji");
+      }
+
+      return withRetry(
+        async () => {
+          const client = createCoreClient(config);
+          try {
+            const message = await client.fetchMessage(channelId, messageId);
+            if (input.remove) {
+              await message.removeReaction(emoji);
+            } else {
+              await message.react(emoji);
+            }
           } catch (error) {
             throw formatError(error);
           } finally {

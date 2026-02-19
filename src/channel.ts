@@ -9,6 +9,7 @@ import {
   migrateBaseNameToDefaultAccount,
   normalizeAccountId,
   setAccountEnabledInConfigSection,
+  type ChannelMessageActionAdapter,
   type ChannelPlugin,
 } from "openclaw/plugin-sdk";
 import {
@@ -22,7 +23,7 @@ import { monitorFluxerProvider } from "./monitor.js";
 import { looksLikeFluxerTargetId, normalizeFluxerMessagingTarget } from "./normalize.js";
 import { probeFluxer } from "./probe.js";
 import { getFluxerRuntime } from "./runtime.js";
-import { sendMessageFluxer } from "./send.js";
+import { sendMessageFluxer, sendReactionFluxer } from "./send.js";
 
 const meta = {
   id: "fluxer",
@@ -45,6 +46,64 @@ function normalizeAllowEntry(entry: string): string {
     .toLowerCase();
 }
 
+const fluxerMessageActions: ChannelMessageActionAdapter = {
+  listActions: () => ["react"],
+  supportsAction: ({ action }) => action === "react",
+  handleAction: async ({ action, params, accountId }) => {
+    if (action !== "react") {
+      throw new Error(`Fluxer action ${action} not supported`);
+    }
+
+    const toRaw =
+      typeof params.to === "string"
+        ? params.to
+        : typeof params.chatId === "string"
+          ? params.chatId
+          : typeof params.channelId === "string"
+            ? params.channelId
+            : "";
+    const to = toRaw.trim();
+    if (!to) {
+      throw new Error("Fluxer react requires to/channelId/chatId target");
+    }
+
+    const messageId = typeof params.messageId === "string" ? params.messageId.trim() : "";
+    if (!messageId) {
+      throw new Error("Fluxer react requires messageId");
+    }
+
+    const emoji = typeof params.emoji === "string" ? params.emoji.trim() : "";
+    if (!emoji) {
+      throw new Error("Fluxer react requires emoji");
+    }
+
+    const remove = params.remove === true;
+    const result = await sendReactionFluxer(
+      {
+        to,
+        messageId,
+        emoji,
+        remove,
+      },
+      {
+        accountId: accountId ?? undefined,
+      },
+    );
+
+    return {
+      content: [
+        {
+          type: "text" as const,
+          text: remove
+            ? `Removed reaction ${emoji} from ${messageId}`
+            : `Reacted with ${emoji} on ${messageId}`,
+        },
+      ],
+      details: result.meta,
+    };
+  },
+};
+
 export const fluxerPlugin: ChannelPlugin<ResolvedFluxerAccount> = {
   id: "fluxer",
   meta,
@@ -57,7 +116,7 @@ export const fluxerPlugin: ChannelPlugin<ResolvedFluxerAccount> = {
   },
   capabilities: {
     chatTypes: ["direct", "group", "channel"],
-    reactions: false,
+    reactions: true,
     threads: false,
     media: true,
     nativeCommands: false,
@@ -133,6 +192,7 @@ export const fluxerPlugin: ChannelPlugin<ResolvedFluxerAccount> = {
       hint: "<channelId|user:ID|group:ID>",
     },
   },
+  actions: fluxerMessageActions,
   setup: {
     resolveAccountId: ({ accountId }) => normalizeAccountId(accountId),
     applyAccountName: ({ cfg, accountId, name }) =>
