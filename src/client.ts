@@ -357,6 +357,32 @@ function formatError(error: unknown): FluxerApiError {
   );
 }
 
+function formatMonitorError(error: unknown): string {
+  if (error instanceof Error) {
+    const bits = [error.name, error.message].filter(Boolean).join(": ");
+    if (bits) return bits;
+    return String(error);
+  }
+  return String(error);
+}
+
+function isFatalMonitorError(error: unknown): boolean {
+  const status = getStatusCode(error);
+  if (status === 401 || status === 403) return true;
+
+  const cls = classifyError(error);
+  if (cls === "auth" || cls === "validation") return true;
+
+  const message = (error instanceof Error ? error.message : String(error)).toLowerCase();
+  return (
+    message.includes("unauthorized") ||
+    message.includes("forbidden") ||
+    message.includes("invalid token") ||
+    message.includes("bad token") ||
+    message.includes("authentication")
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Main client factory
 // ---------------------------------------------------------------------------
@@ -614,11 +640,46 @@ export function createFluxerClient(config: FluxerClientConfig): FluxerClient {
         );
       });
 
-      let connectionError: unknown = null;
-      let connectionErrorMessage: string | undefined;
+      let fatalConnectionError: unknown = null;
+      let lastConnectionErrorMessage: string | undefined;
+      const transientErrorTimestamps: number[] = [];
+      const transientWindowMs = 10_000;
+      const transientThreshold = 5;
+
       const onError = (error: unknown) => {
-        connectionError = error;
-        connectionErrorMessage = error instanceof Error ? error.message : String(error);
+        lastConnectionErrorMessage = formatMonitorError(error);
+
+        // Log full detail for diagnosis while avoiding noisy stack dumps.
+        const status = getStatusCode(error);
+        console.warn(
+          `[fluxer:${config.accountId}] gateway error${typeof status === "number" ? ` status=${status}` : ""}: ${lastConnectionErrorMessage}`,
+        );
+
+        if (isFatalMonitorError(error)) {
+          fatalConnectionError = error;
+          return;
+        }
+
+        // Treat repeated transient WS errors as fatal to allow reconnect,
+        // but do not flap on a single transient event.
+        const now = Date.now();
+        transientErrorTimestamps.push(now);
+        while (
+          transientErrorTimestamps.length > 0 &&
+          now - transientErrorTimestamps[0] > transientWindowMs
+        ) {
+          transientErrorTimestamps.shift();
+        }
+        if (transientErrorTimestamps.length >= transientThreshold) {
+          fatalConnectionError =
+            error instanceof Error
+              ? new Error(
+                  `repeated transient gateway errors (${transientErrorTimestamps.length} within ${transientWindowMs}ms): ${error.message}`,
+                )
+              : new Error(
+                  `repeated transient gateway errors (${transientErrorTimestamps.length} within ${transientWindowMs}ms)`,
+                );
+        }
       };
       client.on(Events.Error, onError);
 
@@ -630,9 +691,9 @@ export function createFluxerClient(config: FluxerClientConfig): FluxerClient {
           waitForAbort(abortSignal),
           new Promise<void>((_, reject) => {
             const timer = setInterval(() => {
-              if (connectionError) {
+              if (fatalConnectionError) {
                 clearInterval(timer);
-                reject(connectionError);
+                reject(fatalConnectionError);
               }
             }, 250);
             abortSignal.addEventListener(
@@ -645,7 +706,7 @@ export function createFluxerClient(config: FluxerClientConfig): FluxerClient {
           }),
         ]);
       } finally {
-        const disconnectReason = abortSignal.aborted ? "aborted" : connectionErrorMessage;
+        const disconnectReason = abortSignal.aborted ? "aborted" : lastConnectionErrorMessage;
         onDisconnected?.({ reason: disconnectReason });
         await client.destroy().catch(() => undefined);
       }
