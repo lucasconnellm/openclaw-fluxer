@@ -621,7 +621,9 @@ export function createFluxerClient(config: FluxerClientConfig): FluxerClient {
               description: `OpenClaw ${name} command`,
             }));
 
-            await client.rest.put(Routes.applicationCommands(applicationId), payload);
+            await client.rest.put(Routes.applicationCommands(applicationId), {
+              body: payload,
+            });
             return { applicationId, registered: normalized };
           } catch (error) {
             throw formatError(error);
