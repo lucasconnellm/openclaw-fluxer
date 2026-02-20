@@ -58,6 +58,7 @@
   "publishConfig": {
     "access": "public"
   },
+  "packageManager": "pnpm@10.30.0",
   "keywords": [
     "openclaw",
     "plugin",
