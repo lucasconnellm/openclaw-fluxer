@@ -99,13 +99,51 @@ You can also use env vars (default account only):
 - ⚠️ slash command registration is experimental (`slashCommandPrefixes`, default tries `/models`)
 - ⚠️ thread routing parity not complete
 
-## Dev checks
+## Development workflow (pnpm + commit standards)
+
+This repo uses **pnpm**, **Husky**, **Commitizen**, **Commitlint**, and **release-please**.
+
+### Install
 
 ```bash
-npm install
-npm run typecheck
-npm test
+pnpm install
+pnpm run prepare
 ```
+
+### Local quality gates
+
+- Pre-commit hook runs `pnpm run check` (typecheck + tests)
+- Commit message hook enforces **Conventional Commits**
+
+### Conventional Commits (required)
+
+Use commit messages like:
+
+- `feat: add outbound typing support`
+- `fix: handle fluxer websocket reconnect jitter`
+- `chore: bump @fluxerjs/core to 1.2.0`
+
+Do **not** use non-conventional commit messages. They will be rejected by commit hooks and will break release automation quality.
+
+### Commit helper (Commitizen)
+
+Use the guided commit flow:
+
+```bash
+pnpm commit
+```
+
+### CI
+
+GitHub Actions CI runs on:
+
+- pull requests
+- manual workflow dispatch
+
+### Releases (release-please)
+
+`release-please` runs on `main` and opens/updates a release PR based on Conventional Commits.
+When merged, it updates version/changelog and creates the GitHub release/tag consumed by publish automation.
 
 ## License
 
