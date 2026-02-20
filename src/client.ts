@@ -296,12 +296,19 @@ function parseTarget(to: string): { kind: "channel" | "group" | "user"; id: stri
   return { kind: "channel", id };
 }
 
-function resolveChatType(message: Message): "direct" | "group" | "channel" {
+export function resolveChatType(message: Message): "direct" | "group" | "channel" {
   const channel = message.channel;
   if (channel?.isDM()) {
     // Group DM channels usually have a name; 1:1 DM channels usually do not.
     return channel.name ? "group" : "direct";
   }
+
+  // DM channels may be missing from cache (message.channel === null), especially
+  // for freshly created/unseen DMs. In that case guildId is still null.
+  if (message.guildId == null) {
+    return "direct";
+  }
+
   return "channel";
 }
 
