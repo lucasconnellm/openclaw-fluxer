@@ -6,14 +6,17 @@ on:
       - main
   workflow_dispatch:
 
+# Keep default workflow token scope minimal; elevate only for release-please job.
 permissions:
-  contents: write
-  pull-requests: write
-  issues: write
+  contents: read
 
 jobs:
   release-please:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
     steps:
       - uses: googleapis/release-please-action@v4
         with:
