@@ -598,7 +598,9 @@ var LiveKitRtcConnection = class extends EventEmitter2 {
     return this._playing;
   }
   debug(msg, data) {
-    console.error("[voice LiveKitRtc]", msg, data ?? "");
+    if (VOICE_DEBUG) {
+      console.debug("[voice LiveKitRtc]", msg, data ?? "");
+    }
   }
   audioDebug(msg, data) {
     if (VOICE_DEBUG) {
@@ -2099,11 +2101,6 @@ var VoiceManager = class extends EventEmitter3 {
       );
       const timeout = setTimeout(() => {
         if (this.pending.has(channelId)) {
-          const pending = this.pending.get(channelId);
-          this.client.emit?.(
-            "debug",
-            `[VoiceManager] Join timeout guild=${channel.guildId} channel=${channelId} hasServer=${Boolean(pending?.server)} hasState=${Boolean(pending?.state)} botUser=${this.client.user?.id ?? "unknown"}`
-          );
           this.pending.delete(channelId);
           reject(
             new Error(

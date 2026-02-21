@@ -9,7 +9,6 @@ type VoiceClientState = {
 };
 
 const voiceClients = new Map<string, VoiceClientState>();
-const instrumentedVoiceClients = new WeakSet<Client>();
 
 function normalizeBaseUrl(raw: string): string {
   return raw.trim().replace(/\/+$/, "");
@@ -27,32 +26,8 @@ function resolveRestApiAndVersion(baseUrl: string): { api: string; version: stri
   return { api: `${parsed.origin}${rawPath}`, version: "1" };
 }
 
-function voiceLog(accountId: string, level: "info" | "warn" | "error", message: string): void {
-  const runtime = getFluxerRuntime() as any;
-  const logger = runtime?.logging?.getChildLogger?.({ module: "fluxer.voice" });
-  const line = `[${accountId}] ${message}`;
-  if (level === "error") {
-    logger?.error?.(line);
-    runtime?.error?.(`fluxer.voice ${line}`);
-    return;
-  }
-  if (level === "warn") {
-    logger?.warn?.(line);
-    runtime?.log?.(`fluxer.voice WARN ${line}`);
-    return;
-  }
-  logger?.info?.(line);
-  runtime?.log?.(`fluxer.voice ${line}`);
-}
-
-async function waitForClientReady(
-  client: Client,
-  accountId: string,
-  timeoutMs = 15_000,
-): Promise<void> {
+async function waitForClientReady(client: Client, timeoutMs = 15_000): Promise<void> {
   if ((client as any).isReady?.()) return;
-
-  voiceLog(accountId, "info", `waiting for gateway Ready (timeout=${timeoutMs}ms)`);
 
   await new Promise<void>((resolve, reject) => {
     const timer = setTimeout(() => {
@@ -79,44 +54,6 @@ async function waitForClientReady(
     client.once(Events.Ready as any, onReady);
     client.once(Events.Error as any, onError);
   });
-
-  voiceLog(accountId, "info", `gateway Ready received; bot user=${client.user?.id ?? "unknown"}`);
-}
-
-function attachVoiceDiagnostics(client: Client, accountId: string): void {
-  if (instrumentedVoiceClients.has(client)) return;
-  instrumentedVoiceClients.add(client);
-
-  client.on(Events.VoiceStateUpdate as any, (data: any) => {
-    voiceLog(
-      accountId,
-      "info",
-      `VoiceStateUpdate guild=${data?.guild_id ?? "?"} user=${data?.user_id ?? "?"} channel=${data?.channel_id ?? "null"} session=${data?.session_id ?? ""} connection=${data?.connection_id ?? ""}`,
-    );
-  });
-
-  client.on(Events.VoiceServerUpdate as any, (data: any) => {
-    voiceLog(
-      accountId,
-      "info",
-      `VoiceServerUpdate guild=${data?.guild_id ?? "?"} channel=${data?.channel_id ?? "?"} endpoint=${data?.endpoint ?? "null"} token=${data?.token ? "yes" : "NO"} connection=${data?.connection_id ?? ""}`,
-    );
-  });
-
-  client.on(Events.VoiceStatesSync as any, (data: any) => {
-    const count = Array.isArray(data?.voiceStates) ? data.voiceStates.length : 0;
-    voiceLog(
-      accountId,
-      "info",
-      `VoiceStatesSync guild=${data?.guildId ?? "?"} states=${count}`,
-    );
-  });
-
-  client.on("debug" as any, (message: unknown) => {
-    const text = String(message ?? "");
-    if (!text.includes("Voice")) return;
-    voiceLog(accountId, "info", `debug ${text}`);
-  });
 }
 
 async function ensureVoiceClient(accountId?: string): Promise<{ accountId: string; client: Client }> {
@@ -132,14 +69,7 @@ async function ensureVoiceClient(accountId?: string): Promise<{ accountId: strin
 
   const existing = voiceClients.get(account.accountId);
   if (existing) {
-    attachVoiceDiagnostics(existing.client, account.accountId);
-    await waitForClientReady(existing.client, account.accountId).catch((error) => {
-      voiceLog(
-        account.accountId,
-        "warn",
-        `existing voice client not ready: ${error instanceof Error ? error.message : String(error)}`,
-      );
-    });
+    await waitForClientReady(existing.client).catch(() => undefined);
     return { accountId: account.accountId, client: existing.client };
   }
 
@@ -156,10 +86,8 @@ async function ensureVoiceClient(accountId?: string): Promise<{ accountId: strin
 
   client.rest.setToken(apiToken);
   await client.login(apiToken);
-  attachVoiceDiagnostics(client, account.accountId);
-  await waitForClientReady(client, account.accountId);
+  await waitForClientReady(client);
   voiceClients.set(account.accountId, { client, connectedAt: Date.now() });
-  voiceLog(account.accountId, "info", `voice client logged in as ${client.user?.id ?? "unknown"}`);
 
   return { accountId: account.accountId, client };
 }
@@ -176,32 +104,8 @@ export async function voiceJoinFluxer(params: {
     throw new Error(`Fluxer voice channel not found: ${params.channelId}`);
   }
 
-  voiceLog(
-    accountId,
-    "info",
-    `join requested guild=${params.guildId} channel=${params.channelId} channelType=${channel?.type ?? "unknown"} channelGuild=${channel?.guildId ?? "unknown"}`,
-  );
-
   const voiceManager = getVoiceManager(client as any);
-  try {
-    await voiceManager.join(channel);
-    voiceLog(accountId, "info", `join ready guild=${params.guildId} channel=${params.channelId}`);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    voiceLog(
-      accountId,
-      "warn",
-      `join failed guild=${params.guildId} channel=${params.channelId}: ${message}`,
-    );
-
-    const existingConn = voiceManager.getConnection?.(params.channelId);
-    voiceLog(
-      accountId,
-      "warn",
-      `join diagnostics connectionPresent=${Boolean(existingConn)} botUser=${client.user?.id ?? "unknown"}`,
-    );
-    throw error;
-  }
+  await voiceManager.join(channel);
 
   return { ok: true, accountId, guildId: params.guildId, channelId: params.channelId };
 }
