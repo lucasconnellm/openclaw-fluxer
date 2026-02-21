@@ -376,11 +376,33 @@ function attachmentUrls(message: Message): string[] {
     .filter(Boolean);
 }
 
+function extractUrlsFromText(text: string): string[] {
+  const matches = text.match(/https?:\/\/[^\s<>()]+/gi) ?? [];
+  return matches
+    .map((url) => url.replace(/[),.;!?]+$/g, "").trim())
+    .filter(Boolean);
+}
+
+function isGifLikeUrl(url: string): boolean {
+  const lower = url.toLowerCase();
+  if (/\.gif(?:$|[?#])/i.test(lower)) return true;
+  if (lower.includes("tenor.com")) return true;
+  if (lower.includes("giphy.com")) return true;
+  return false;
+}
+
+function gifUrlsFromContent(message: Message): string[] {
+  const content = typeof message.content === "string" ? message.content : "";
+  if (!content.trim()) return [];
+  return extractUrlsFromText(content).filter(isGifLikeUrl);
+}
+
 export function collectMediaUrls(message: Message): string[] {
   const attachments = attachmentUrls(message);
   const stickers = stickerUrls(message);
-  // Dedupe while preserving order (attachments first, then stickers)
-  return [...new Set([...attachments, ...stickers])];
+  const gifsFromContent = gifUrlsFromContent(message);
+  // Dedupe while preserving order (attachments first, then stickers, then gif-like links in text)
+  return [...new Set([...attachments, ...stickers, ...gifsFromContent])];
 }
 
 function formatError(error: unknown): FluxerApiError {

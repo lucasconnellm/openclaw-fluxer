@@ -6,6 +6,7 @@ import { resolveChatType, collectMediaUrls } from "./client.js";
 interface MockMessageInput {
   channel?: { isDM: () => boolean; name: string | null } | null;
   guildId?: string | null;
+  content?: string;
   attachments?: Map<string, { url: string }>;
   stickers?: APIMessageSticker[];
 }
@@ -14,6 +15,7 @@ function mockMessage(input: MockMessageInput): Message {
   return {
     channel: input.channel ?? null,
     guildId: input.guildId ?? null,
+    content: input.content ?? "",
     attachments: input.attachments
       ? new Collection(input.attachments)
       : new Collection<string, { url: string }>(),
@@ -174,5 +176,26 @@ describe("collectMediaUrls", () => {
     });
 
     expect(collectMediaUrls(message)).toEqual(["https://cdn.example.com/valid.png"]);
+  });
+
+  it("extracts gif-like URLs from message content", () => {
+    const message = mockMessage({
+      content:
+        "look https://media.example.com/clip.gif and https://tenor.com/view/cat-dance plus https://example.com/page",
+    });
+
+    expect(collectMediaUrls(message)).toEqual([
+      "https://media.example.com/clip.gif",
+      "https://tenor.com/view/cat-dance",
+    ]);
+  });
+
+  it("dedupes gif URLs shared across attachment and content", () => {
+    const message = mockMessage({
+      content: "same gif https://cdn.example.com/reuse.gif",
+      attachments: new Map([["1", { url: "https://cdn.example.com/reuse.gif" }]]),
+    });
+
+    expect(collectMediaUrls(message)).toEqual(["https://cdn.example.com/reuse.gif"]);
   });
 });
