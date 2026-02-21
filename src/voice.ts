@@ -33,6 +33,7 @@ type ParticipantAudioState = {
   totalSamples: number;
   processing: boolean;
   frameCount: number;
+  collecting: boolean;
   utteranceStartedAtMs?: number;
   lastUtteranceDurationMs?: number;
 };
@@ -587,9 +588,11 @@ async function processSpeakerUtterance(params: {
       minUtteranceMs,
       minUtteranceFallbackMs,
     });
+    state.collecting = false;
     state.chunks = [];
     state.totalSamples = 0;
     state.lastUtteranceDurationMs = undefined;
+    state.utteranceStartedAtMs = undefined;
     return;
   }
 
@@ -610,6 +613,7 @@ async function processSpeakerUtterance(params: {
   const chunks = state.chunks;
   state.chunks = [];
   state.totalSamples = 0;
+  state.collecting = false;
   state.processing = true;
   state.lastUtteranceDurationMs = undefined;
   state.utteranceStartedAtMs = undefined;
@@ -755,6 +759,17 @@ function ensureResponderSession(params: {
         }
         return;
       }
+      const nowMs = Date.now();
+      if (!state.collecting) {
+        state.collecting = true;
+        if (!state.utteranceStartedAtMs) state.utteranceStartedAtMs = nowMs;
+        voiceTrace("collecting started from first frame", {
+          sessionKey: session.key,
+          participantId: frame.participantId,
+          requestedUserId: state.requestedUserId,
+        });
+      }
+
       state.sampleRate = frame.sampleRate;
       state.channels = frame.channels;
       state.totalSamples += frame.samples.length;
@@ -791,15 +806,29 @@ function ensureResponderSession(params: {
         });
         return;
       }
+      const nowMs = Date.now();
+      if (state.collecting || state.processing) {
+        voiceTrace("speaker start while already collecting/processing (ignored reset)", {
+          sessionKey: session.key,
+          participantId,
+          requestedUserId: state.requestedUserId,
+          collecting: state.collecting,
+          processing: state.processing,
+          totalSamples: state.totalSamples,
+        });
+        return;
+      }
+
       voiceTrace("speaker start", {
         sessionKey: session.key,
         participantId,
         requestedUserId: state.requestedUserId,
       });
+      state.collecting = true;
       state.chunks = [];
       state.totalSamples = 0;
       state.frameCount = 0;
-      state.utteranceStartedAtMs = Date.now();
+      state.utteranceStartedAtMs = nowMs;
       state.lastUtteranceDurationMs = undefined;
     },
     onSpeakerStop: ({ participantId }) => {
@@ -815,10 +844,22 @@ function ensureResponderSession(params: {
         });
         return;
       }
-      const utteranceDurationMs = state.utteranceStartedAtMs
-        ? Math.max(0, Date.now() - state.utteranceStartedAtMs)
-        : undefined;
+      const nowMs = Date.now();
+      if (!state.collecting && state.totalSamples === 0) {
+        voiceTrace("speaker stop with no active collection", {
+          sessionKey: session.key,
+          participantId,
+          requestedUserId: state.requestedUserId,
+        });
+        return;
+      }
+
+      if (!state.utteranceStartedAtMs) {
+        state.utteranceStartedAtMs = nowMs;
+      }
+      const utteranceDurationMs = Math.max(0, nowMs - state.utteranceStartedAtMs);
       state.lastUtteranceDurationMs = utteranceDurationMs;
+      state.collecting = false;
 
       voiceTrace("speaker stop", {
         sessionKey: session.key,
@@ -1129,6 +1170,7 @@ export async function voiceSubscribeFluxer(params: {
     totalSamples: 0,
     processing: false,
     frameCount: 0,
+    collecting: false,
     utteranceStartedAtMs: undefined,
     lastUtteranceDurationMs: undefined,
   });
