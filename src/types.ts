@@ -49,6 +49,12 @@ export type FluxerAccountConfig = {
       guildId: string;
       channelId: string;
     }>;
+    /** User IDs to auto-subscribe for voice responder mode after auto-join. */
+    autoSubscribeUsers?: string[];
+    /** Minimum buffered speech duration required by sample-count gate. Default: 250ms. */
+    minUtteranceMs?: number;
+    /** Time-based fallback gate: if speaking duration reaches this, process even with sparse samples. Default: 2500ms. */
+    minUtteranceFallbackMs?: number;
     tts?: {
       provider?: string;
       openai?: {

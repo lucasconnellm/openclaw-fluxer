@@ -28,7 +28,7 @@ import {
 } from "./normalize.js";
 import { getFluxerRuntime } from "./runtime.js";
 import { sendMessageFluxer } from "./send.js";
-import { voiceJoinFluxer } from "./voice.js";
+import { voiceJoinFluxer, voiceSubscribeFluxer } from "./voice.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -225,21 +225,48 @@ export async function monitorFluxerProvider(opts: MonitorFluxerOpts = {}): Promi
   const autoJoinTargets = (account.config.voice?.autoJoin ?? []).filter(
     (entry) => entry.guildId?.trim() && entry.channelId?.trim(),
   );
+  const autoSubscribeUsers = Array.from(
+    new Set(
+      (account.config.voice?.autoSubscribeUsers ?? [])
+        .map((entry) => String(entry).trim())
+        .filter(Boolean),
+    ),
+  );
 
   if (voiceEnabled && autoJoinTargets.length > 0) {
     for (const target of autoJoinTargets) {
+      const guildId = target.guildId.trim();
+      const channelId = target.channelId.trim();
       try {
         await voiceJoinFluxer({
           accountId: account.accountId,
-          guildId: target.guildId.trim(),
-          channelId: target.channelId.trim(),
+          guildId,
+          channelId,
         });
-        logger.info?.(
-          `[${account.accountId}] voice auto-joined guild=${target.guildId} channel=${target.channelId}`,
-        );
+        logger.info?.(`[${account.accountId}] voice auto-joined guild=${guildId} channel=${channelId}`);
+
+        if (autoSubscribeUsers.length > 0) {
+          for (const userId of autoSubscribeUsers) {
+            try {
+              await voiceSubscribeFluxer({
+                accountId: account.accountId,
+                guildId,
+                channelId,
+                userId,
+              });
+              logger.info?.(
+                `[${account.accountId}] voice auto-subscribed user=${userId} guild=${guildId} channel=${channelId}`,
+              );
+            } catch (error) {
+              logger.warn?.(
+                `[${account.accountId}] voice auto-subscribe failed user=${userId} guild=${guildId} channel=${channelId}: ${formatErrorMessage(error)}`,
+              );
+            }
+          }
+        }
       } catch (error) {
         logger.warn?.(
-          `[${account.accountId}] voice auto-join failed for guild=${target.guildId} channel=${target.channelId}: ${formatErrorMessage(error)}`,
+          `[${account.accountId}] voice auto-join failed for guild=${guildId} channel=${channelId}: ${formatErrorMessage(error)}`,
         );
       }
     }
