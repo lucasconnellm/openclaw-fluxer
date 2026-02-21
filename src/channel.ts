@@ -24,7 +24,13 @@ import { looksLikeFluxerTargetId, normalizeFluxerMessagingTarget } from "./norma
 import { probeFluxer } from "./probe.js";
 import { getFluxerRuntime } from "./runtime.js";
 import { sendMediaFluxer, sendMessageFluxer, sendReactionFluxer } from "./send.js";
-import { voiceJoinFluxer, voiceLeaveFluxer, voiceStatusFluxer } from "./voice.js";
+import {
+  voiceJoinFluxer,
+  voiceLeaveFluxer,
+  voiceStatusFluxer,
+  voiceSubscribeFluxer,
+  voiceUnsubscribeFluxer,
+} from "./voice.js";
 
 const meta = {
   id: "fluxer",
@@ -95,6 +101,54 @@ const fluxerMessageActions: ChannelMessageActionAdapter = {
             {
               type: "text" as const,
               text: `Left voice channel in guild ${result.guildId}`,
+            },
+          ],
+          details: result,
+        };
+      }
+
+      if (mode === "subscribe") {
+        if (!channelId) {
+          throw new Error("Fluxer voice subscribe requires channelId");
+        }
+        if (!userId) {
+          throw new Error("Fluxer voice subscribe requires userId");
+        }
+        const result = await voiceSubscribeFluxer({
+          guildId,
+          channelId,
+          userId,
+          accountId: accountId ?? undefined,
+        });
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: `Subscribed to ${result.userId} in ${result.channelId}. Active: ${result.activeSubscriptions.join(", ") || "none"}`,
+            },
+          ],
+          details: result,
+        };
+      }
+
+      if (mode === "unsubscribe") {
+        if (!channelId) {
+          throw new Error("Fluxer voice unsubscribe requires channelId");
+        }
+        if (!userId) {
+          throw new Error("Fluxer voice unsubscribe requires userId");
+        }
+        const result = await voiceUnsubscribeFluxer({
+          guildId,
+          channelId,
+          userId,
+          accountId: accountId ?? undefined,
+        });
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: `Unsubscribed ${result.userId} in ${result.channelId}. Active: ${result.activeSubscriptions.join(", ") || "none"}`,
             },
           ],
           details: result,
