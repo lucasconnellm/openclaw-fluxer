@@ -24,6 +24,7 @@ import { looksLikeFluxerTargetId, normalizeFluxerMessagingTarget } from "./norma
 import { probeFluxer } from "./probe.js";
 import { getFluxerRuntime } from "./runtime.js";
 import { sendMediaFluxer, sendMessageFluxer, sendReactionFluxer } from "./send.js";
+import { voiceJoinFluxer, voiceLeaveFluxer, voiceStatusFluxer } from "./voice.js";
 
 const meta = {
   id: "fluxer",
@@ -47,11 +48,82 @@ function normalizeAllowEntry(entry: string): string {
 }
 
 const fluxerMessageActions: ChannelMessageActionAdapter = {
-  listActions: () => ["react"],
-  supportsAction: ({ action }) => action === "react",
+  listActions: () => ["react", "voice-status"],
+  supportsAction: ({ action }) => action === "react" || action === "voice-status",
   handleAction: async ({ action, params, accountId }) => {
-    if (action !== "react") {
+    if (action !== "react" && action !== "voice-status") {
       throw new Error(`Fluxer action ${action} not supported`);
+    }
+
+    if (action === "voice-status") {
+      const guildId = typeof params.guildId === "string" ? params.guildId.trim() : "";
+      const userId = typeof params.userId === "string" ? params.userId.trim() : "";
+      const mode = typeof params.mode === "string" ? params.mode.trim().toLowerCase() : "status";
+      const channelId = typeof params.channelId === "string" ? params.channelId.trim() : "";
+
+      if (!guildId) {
+        throw new Error("Fluxer voice-status requires guildId");
+      }
+
+      if (mode === "join") {
+        if (!channelId) {
+          throw new Error("Fluxer voice join requires channelId");
+        }
+        const result = await voiceJoinFluxer({
+          guildId,
+          channelId,
+          accountId: accountId ?? undefined,
+        });
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: `Joined voice channel ${result.channelId} in guild ${result.guildId}`,
+            },
+          ],
+          details: result,
+        };
+      }
+
+      if (mode === "leave") {
+        const result = await voiceLeaveFluxer({
+          guildId,
+          accountId: accountId ?? undefined,
+        });
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: `Left voice channel in guild ${result.guildId}`,
+            },
+          ],
+          details: result,
+        };
+      }
+
+      if (!userId) {
+        throw new Error("Fluxer voice-status requires userId for status mode");
+      }
+
+      const result = await voiceStatusFluxer({
+        guildId,
+        userId,
+        accountId: accountId ?? undefined,
+      });
+
+      const location = result.voiceChannelId
+        ? `${result.voiceChannelName ?? result.voiceChannelId} (${result.voiceChannelId})`
+        : "not in voice";
+
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: `User ${result.userId} voice: ${location}; botConnected=${result.botConnected}`,
+          },
+        ],
+        details: result,
+      };
     }
 
     const toRaw =
