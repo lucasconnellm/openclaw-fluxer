@@ -168,6 +168,55 @@ function resolveLiveKitParticipantId(params: {
   return requested;
 }
 
+function resolveParticipantStateForIncoming(
+  session: VoiceResponderSession,
+  incomingParticipantId: string,
+): ParticipantAudioState | undefined {
+  const direct = session.participants.get(incomingParticipantId);
+  if (direct) return direct;
+
+  const incomingCanonical = canonicalId(incomingParticipantId);
+  const incomingTokens = new Set(extractNumericTokens(incomingParticipantId));
+
+  for (const [key, state] of session.participants.entries()) {
+    const keyCanonical = canonicalId(key);
+    const requestedCanonical = canonicalId(state.requestedUserId);
+
+    let matched =
+      incomingCanonical === keyCanonical ||
+      incomingCanonical === requestedCanonical ||
+      incomingParticipantId.includes(state.requestedUserId) ||
+      state.requestedUserId.includes(incomingParticipantId);
+
+    if (!matched && incomingTokens.size > 0) {
+      const keyTokens = extractNumericTokens(key);
+      const requestedTokens = extractNumericTokens(state.requestedUserId);
+      matched =
+        keyTokens.some((token) => incomingTokens.has(token)) ||
+        requestedTokens.some((token) => incomingTokens.has(token));
+    }
+
+    if (!matched) continue;
+
+    if (key !== incomingParticipantId) {
+      session.participants.delete(key);
+      state.sourceParticipantId = incomingParticipantId;
+      session.participants.set(incomingParticipantId, state);
+      session.aliases.set(state.requestedUserId, incomingParticipantId);
+      voiceTrace("remapped participant identity", {
+        sessionKey: session.key,
+        requestedUserId: state.requestedUserId,
+        oldParticipantId: key,
+        newParticipantId: incomingParticipantId,
+      });
+    }
+
+    return state;
+  }
+
+  return undefined;
+}
+
 function flattenInt16(chunks: Int16Array[]): Int16Array {
   const total = chunks.reduce((sum, chunk) => sum + chunk.length, 0);
   const merged = new Int16Array(total);
@@ -617,7 +666,7 @@ function ensureResponderSession(params: {
     unsubscribedFrameCounts: new Map(),
     queue: Promise.resolve(),
     onAudioFrame: (frame) => {
-      const state = session.participants.get(frame.participantId);
+      const state = resolveParticipantStateForIncoming(session, frame.participantId);
       if (!state) {
         const nextCount = (session.unsubscribedFrameCounts.get(frame.participantId) ?? 0) + 1;
         session.unsubscribedFrameCounts.set(frame.participantId, nextCount);
@@ -658,7 +707,7 @@ function ensureResponderSession(params: {
       }
     },
     onSpeakerStart: ({ participantId }) => {
-      const state = session.participants.get(participantId);
+      const state = resolveParticipantStateForIncoming(session, participantId);
       if (!state) {
         voiceTrace(`speaker start for unsubscribed participant: ${participantId}`, {
           sessionKey: session.key,
@@ -673,13 +722,14 @@ function ensureResponderSession(params: {
       voiceTrace("speaker start", {
         sessionKey: session.key,
         participantId,
+        requestedUserId: state.requestedUserId,
       });
       state.chunks = [];
       state.totalSamples = 0;
       state.frameCount = 0;
     },
     onSpeakerStop: ({ participantId }) => {
-      const state = session.participants.get(participantId);
+      const state = resolveParticipantStateForIncoming(session, participantId);
       if (!state) {
         voiceTrace(`speaker stop for unsubscribed participant: ${participantId}`, {
           sessionKey: session.key,
@@ -694,15 +744,18 @@ function ensureResponderSession(params: {
       voiceTrace("speaker stop", {
         sessionKey: session.key,
         participantId,
+        requestedUserId: state.requestedUserId,
         totalSamples: state.totalSamples,
         frameCount: state.frameCount,
       });
+      const sourceParticipantId = state.sourceParticipantId;
       session.queue = session.queue
-        .then(() => processSpeakerUtterance({ session, participantId }))
+        .then(() => processSpeakerUtterance({ session, participantId: sourceParticipantId }))
         .catch((error) => {
           voiceWarn("queued utterance processing failed", {
             sessionKey: session.key,
-            participantId,
+            participantId: sourceParticipantId,
+            requestedUserId: state.requestedUserId,
             error: error instanceof Error ? error.message : String(error),
           });
         });
