@@ -18,6 +18,7 @@
   },
   "dependencies": {
     "@fluxerjs/core": "^1.2.2",
+    "@fluxerjs/voice": "file:./vendor/fluxerjs-voice",
     "zod": "^4.3.6"
   },
   "peerDependencies": {
