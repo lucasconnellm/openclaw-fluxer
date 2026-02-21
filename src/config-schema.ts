@@ -57,6 +57,16 @@ const FluxerAccountSchemaBase = z
       })
       .strict()
       .optional(),
+    streaming: z
+      .object({
+        enabled: z.boolean().optional(),
+        mode: z.enum(["partial", "block"]).optional(),
+        minCharsDelta: z.number().int().nonnegative().max(2_000).optional(),
+        idleMs: z.number().int().nonnegative().max(60_000).optional(),
+        maxEdits: z.number().int().positive().max(2_000).optional(),
+      })
+      .strict()
+      .optional(),
   })
   .strict();
 
