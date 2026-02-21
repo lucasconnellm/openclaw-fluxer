@@ -27,7 +27,11 @@ import {
   type FluxerNormalizedMessageCreateEvent,
 } from "./normalize.js";
 import { getFluxerRuntime } from "./runtime.js";
-import { sendMessageFluxer } from "./send.js";
+import { editMessageFluxer, sendMessageFluxer } from "./send.js";
+import {
+  DraftPreviewController,
+  resolveStreamingPreviewConfig,
+} from "./streaming-preview.js";
 import { voiceJoinFluxer, voiceSubscribeFluxer } from "./voice.js";
 
 // ---------------------------------------------------------------------------
@@ -713,6 +717,34 @@ export async function monitorFluxerProvider(opts: MonitorFluxerOpts = {}): Promi
       channel: "fluxer",
       accountId: account.accountId,
     });
+    const chunkMode = core.channel.text.resolveChunkMode(cfg, "fluxer", account.accountId);
+
+    const streamingPreviewConfig = resolveStreamingPreviewConfig(account.config.streaming);
+    const draftPreview = new DraftPreviewController(streamingPreviewConfig, {
+      send: async (text) => {
+        const result = await sendMessageFluxer(to, text, {
+          accountId: account.accountId,
+          replyToId: event.messageId,
+        });
+        return {
+          messageId: result.messageId,
+          chatId: result.chatId,
+        };
+      },
+      edit: async ({ chatId, messageId, text }) => {
+        await editMessageFluxer(
+          {
+            channelId: chatId,
+            messageId,
+            text,
+          },
+          {
+            accountId: account.accountId,
+          },
+        );
+      },
+      log: (message) => logger.debug?.(`[${account.accountId}] ${message}`),
+    });
 
     const { onModelSelected, ...prefixOptions } = createReplyPrefixOptions({
       cfg,
@@ -745,18 +777,41 @@ export async function monitorFluxerProvider(opts: MonitorFluxerOpts = {}): Promi
       core.channel.reply.createReplyDispatcherWithTyping({
         ...prefixOptions,
         humanDelay: core.channel.reply.resolveHumanDelayConfig(cfg, route.agentId),
-        deliver: async (payload: ReplyPayload) => {
+        deliver: async (
+          payload: ReplyPayload,
+          info: { kind: "tool" | "block" | "final" },
+        ) => {
           const mediaUrls = payload.mediaUrls ?? (payload.mediaUrl ? [payload.mediaUrl] : []);
           const replyText = core.channel.text.convertMarkdownTables(payload.text ?? "", tableMode);
 
+          // If block previews are enabled, render intermediate block payloads into draft preview.
+          if (info.kind === "block" && draftPreview.shouldHandle("block")) {
+            if (mediaUrls.length === 0) {
+              await draftPreview.update(replyText);
+            }
+            return;
+          }
+
           if (mediaUrls.length === 0) {
-            const chunkMode = core.channel.text.resolveChunkMode(cfg, "fluxer", account.accountId);
-            const chunks = core.channel.text.chunkMarkdownTextWithMode(
-              replyText,
-              textLimit,
-              chunkMode,
-            );
-            for (const chunk of chunks.length > 0 ? chunks : [replyText]) {
+            const chunks = core.channel.text.chunkMarkdownTextWithMode(replyText, textLimit, chunkMode);
+            const fallbackChunks = chunks.length > 0 ? chunks : [replyText];
+
+            if (info.kind === "final" && draftPreview.hasPreviewMessage()) {
+              const [firstChunk, ...rest] = fallbackChunks;
+              const finalized = await draftPreview.finalize(firstChunk);
+              if (finalized) {
+                for (const chunk of rest) {
+                  if (!chunk) continue;
+                  await sendMessageFluxer(to, chunk, {
+                    accountId: account.accountId,
+                  });
+                }
+                runtime.log?.(`delivered reply to ${to}`);
+                return;
+              }
+            }
+
+            for (const chunk of fallbackChunks) {
               if (!chunk) continue;
               await sendMessageFluxer(to, chunk, {
                 accountId: account.accountId,
@@ -781,6 +836,11 @@ export async function monitorFluxerProvider(opts: MonitorFluxerOpts = {}): Promi
         onReplyStart: typingCallbacks.onReplyStart,
       });
 
+    const updateDraftFromPartial = async (text: string | undefined) => {
+      if (!draftPreview.shouldHandle("partial")) return;
+      await draftPreview.update(text);
+    };
+
     await core.channel.reply.dispatchReplyFromConfig({
       ctx: ctxPayload,
       cfg,
@@ -788,6 +848,9 @@ export async function monitorFluxerProvider(opts: MonitorFluxerOpts = {}): Promi
       replyOptions: {
         ...replyOptions,
         onModelSelected,
+        onPartialReply: async (payload) => {
+          await updateDraftFromPartial(payload.text);
+        },
       },
     });
     markDispatchIdle();
