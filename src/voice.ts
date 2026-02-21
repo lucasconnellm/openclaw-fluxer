@@ -45,6 +45,44 @@ function voiceLog(accountId: string, level: "info" | "warn" | "error", message: 
   runtime?.log?.(`fluxer.voice ${line}`);
 }
 
+async function waitForClientReady(
+  client: Client,
+  accountId: string,
+  timeoutMs = 15_000,
+): Promise<void> {
+  if ((client as any).isReady?.()) return;
+
+  voiceLog(accountId, "info", `waiting for gateway Ready (timeout=${timeoutMs}ms)`);
+
+  await new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      cleanup();
+      reject(new Error(`Fluxer voice client did not become ready within ${timeoutMs}ms`));
+    }, timeoutMs);
+
+    const onReady = () => {
+      cleanup();
+      resolve();
+    };
+
+    const onError = (err: unknown) => {
+      cleanup();
+      reject(err instanceof Error ? err : new Error(String(err)));
+    };
+
+    const cleanup = () => {
+      clearTimeout(timer);
+      (client as any).off?.(Events.Ready, onReady);
+      (client as any).off?.(Events.Error as any, onError);
+    };
+
+    client.once(Events.Ready as any, onReady);
+    client.once(Events.Error as any, onError);
+  });
+
+  voiceLog(accountId, "info", `gateway Ready received; bot user=${client.user?.id ?? "unknown"}`);
+}
+
 function attachVoiceDiagnostics(client: Client, accountId: string): void {
   if (instrumentedVoiceClients.has(client)) return;
   instrumentedVoiceClients.add(client);
@@ -95,6 +133,13 @@ async function ensureVoiceClient(accountId?: string): Promise<{ accountId: strin
   const existing = voiceClients.get(account.accountId);
   if (existing) {
     attachVoiceDiagnostics(existing.client, account.accountId);
+    await waitForClientReady(existing.client, account.accountId).catch((error) => {
+      voiceLog(
+        account.accountId,
+        "warn",
+        `existing voice client not ready: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    });
     return { accountId: account.accountId, client: existing.client };
   }
 
@@ -112,6 +157,7 @@ async function ensureVoiceClient(accountId?: string): Promise<{ accountId: strin
   client.rest.setToken(apiToken);
   await client.login(apiToken);
   attachVoiceDiagnostics(client, account.accountId);
+  await waitForClientReady(client, account.accountId);
   voiceClients.set(account.accountId, { client, connectedAt: Date.now() });
   voiceLog(account.accountId, "info", `voice client logged in as ${client.user?.id ?? "unknown"}`);
 
