@@ -26,6 +26,34 @@ const FluxerAccountSchemaBase = z
     reconnect: FluxerReconnectSchema.optional(),
     authScheme: z.enum(["bearer", "token", "bot"]).optional(),
     slashCommandPrefixes: z.array(z.string().min(1)).optional(),
+    voice: z
+      .object({
+        enabled: z.boolean().optional(),
+        autoJoin: z
+          .array(
+            z
+              .object({
+                guildId: z.string().min(1),
+                channelId: z.string().min(1),
+              })
+              .strict(),
+          )
+          .optional(),
+        tts: z
+          .object({
+            provider: z.string().optional(),
+            openai: z
+              .object({
+                voice: z.string().optional(),
+              })
+              .strict()
+              .optional(),
+          })
+          .strict()
+          .optional(),
+      })
+      .strict()
+      .optional(),
   })
   .strict();
 

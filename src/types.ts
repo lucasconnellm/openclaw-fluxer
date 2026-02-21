@@ -42,6 +42,20 @@ export type FluxerAccountConfig = {
   authScheme?: string;
   /** Optional slash command prefixes to register (e.g. ["models"]). */
   slashCommandPrefixes?: string[];
+  /** Discord-compatible voice config shape for standardization. */
+  voice?: {
+    enabled?: boolean;
+    autoJoin?: Array<{
+      guildId: string;
+      channelId: string;
+    }>;
+    tts?: {
+      provider?: string;
+      openai?: {
+        voice?: string;
+      };
+    };
+  };
 };
 
 export type FluxerConfig = {
