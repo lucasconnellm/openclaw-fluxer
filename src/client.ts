@@ -358,10 +358,29 @@ export function resolveChatType(message: Message): "direct" | "group" | "channel
   return "channel";
 }
 
+// Fluxer CDN URL for user content (stickers, attachments, etc.)
+const FLUXER_CDN_URL = "https://fluxerusercontent.com";
+
+function stickerUrl(stickerId: string, animated: boolean): string {
+  const ext = animated ? "gif" : "png";
+  return `${FLUXER_CDN_URL}/stickers/${stickerId}.${ext}`;
+}
+
+function stickerUrls(message: Message): string[] {
+  return message.stickers.map((sticker) => stickerUrl(sticker.id, sticker.animated ?? false));
+}
+
 function attachmentUrls(message: Message): string[] {
   return Array.from(message.attachments.values())
     .map((attachment) => (typeof attachment.url === "string" ? attachment.url.trim() : ""))
     .filter(Boolean);
+}
+
+export function collectMediaUrls(message: Message): string[] {
+  const attachments = attachmentUrls(message);
+  const stickers = stickerUrls(message);
+  // Dedupe while preserving order (attachments first, then stickers)
+  return [...new Set([...attachments, ...stickers])];
 }
 
 function formatError(error: unknown): FluxerApiError {
@@ -686,7 +705,7 @@ export function createFluxerClient(config: FluxerClientConfig): FluxerClient {
             senderName: message.author.globalName ?? message.author.username,
             text: message.content ?? "",
             timestamp: message.createdAt?.getTime?.() ?? Date.now(),
-            attachments: attachmentUrls(message).map((url) => ({ url })),
+            attachments: collectMediaUrls(message).map((url) => ({ url })),
           },
         };
         return Promise.resolve(onEvent(rawEvent));
