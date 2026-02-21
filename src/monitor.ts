@@ -233,6 +233,20 @@ export async function monitorFluxerProvider(opts: MonitorFluxerOpts = {}): Promi
     ),
   );
 
+  let officialFluxerHosted = false;
+  try {
+    const host = new URL(baseUrl).hostname.toLowerCase();
+    officialFluxerHosted = host === "fluxer.app" || host.endsWith(".fluxer.app");
+  } catch {
+    officialFluxerHosted = false;
+  }
+
+  if (voiceEnabled) {
+    logger.warn?.(
+      `[${account.accountId}] voice is highly experimental and currently does not work well against official Fluxer.app servers${officialFluxerHosted ? " (this account is using hosted Fluxer.app endpoints)" : ""}. Expect instability; this path will not be heavily prioritized until Fluxer server stability improves.`,
+    );
+  }
+
   if (voiceEnabled && autoJoinTargets.length > 0) {
     for (const target of autoJoinTargets) {
       const guildId = target.guildId.trim();
