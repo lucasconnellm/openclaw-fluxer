@@ -263,10 +263,22 @@ function encodePcm16Wav(samples: Int16Array, sampleRate: number, channels: numbe
 function mapTtsFormatToExt(format?: string): string {
   const normalized = (format ?? "").toLowerCase();
   if (normalized.includes("mp3")) return "mp3";
-  if (normalized.includes("wav") || normalized.includes("pcm")) return "wav";
+  if (normalized.includes("wav")) return "wav";
   if (normalized.includes("ogg")) return "ogg";
   if (normalized.includes("opus")) return "opus";
+  if (normalized.includes("pcm") || normalized.includes("s16")) return "pcm";
   return "bin";
+}
+
+function isTelephonyPcmOutput(format?: string): boolean {
+  const normalized = (format ?? "").toLowerCase();
+  if (!normalized) return true; // textToSpeechTelephony defaults to PCM
+  return (
+    normalized.includes("pcm") ||
+    normalized.includes("s16") ||
+    normalized.includes("raw") ||
+    normalized === "linear16"
+  );
 }
 
 function applyVoiceTtsOverrides(cfg: OpenClawConfig, accountId: string): OpenClawConfig {
@@ -475,7 +487,9 @@ async function synthesizeAndPlayReply(params: {
   });
 
   const stamp = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-  const sourceExt = mapTtsFormatToExt(tts.outputFormat);
+  const pcmInput = isTelephonyPcmOutput(tts.outputFormat);
+  const pcmSampleRate = tts.sampleRate && Number.isFinite(tts.sampleRate) ? tts.sampleRate : 24_000;
+  const sourceExt = pcmInput ? "s16le" : mapTtsFormatToExt(tts.outputFormat);
   const sourcePath = path.join(tmpdir(), `fluxer-voice-tts-${stamp}.${sourceExt}`);
   const webmPath = path.join(tmpdir(), `fluxer-voice-tts-${stamp}.webm`);
 
@@ -486,27 +500,31 @@ async function synthesizeAndPlayReply(params: {
       accountId: params.accountId,
       sourcePath,
       webmPath,
+      pcmInput,
+      pcmSampleRate,
+      outputFormat: tts.outputFormat,
     });
 
-    const result = await runtime.system.runCommandWithTimeout(
-      [
-        "ffmpeg",
-        "-y",
-        "-i",
-        sourcePath,
-        "-vn",
-        "-c:a",
-        "libopus",
-        "-ar",
-        "48000",
-        "-ac",
-        "1",
-        "-f",
-        "webm",
-        webmPath,
-      ],
-      { timeoutMs: 30_000 },
+    const ffmpegArgs = ["ffmpeg", "-y"];
+    if (pcmInput) {
+      ffmpegArgs.push("-f", "s16le", "-ar", String(pcmSampleRate), "-ac", "1");
+    }
+    ffmpegArgs.push(
+      "-i",
+      sourcePath,
+      "-vn",
+      "-c:a",
+      "libopus",
+      "-ar",
+      "48000",
+      "-ac",
+      "1",
+      "-f",
+      "webm",
+      webmPath,
     );
+
+    const result = await runtime.system.runCommandWithTimeout(ffmpegArgs, { timeoutMs: 30_000 });
 
     if (result.code !== 0) {
       voiceWarn("ffmpeg transcode failed", {
