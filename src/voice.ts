@@ -40,6 +40,7 @@ type VoiceResponderSession = {
   channelId: string;
   connection: LiveKitRtcConnection;
   participants: Map<string, ParticipantAudioState>;
+  unsubscribedFrameCounts: Map<string, number>;
   queue: Promise<void>;
   onAudioFrame: (frame: LiveKitAudioFrame) => void;
   onSpeakerStart: (payload: { participantId: string }) => void;
@@ -522,6 +523,7 @@ function teardownResponderSession(key: string): void {
     entry.subscription.stop();
   }
   session.participants.clear();
+  session.unsubscribedFrameCounts.clear();
 
   session.connection.off("audioFrame", session.onAudioFrame);
   session.connection.off("speakerStart", session.onSpeakerStart);
@@ -562,10 +564,23 @@ function ensureResponderSession(params: {
     channelId: params.channelId,
     connection: params.connection,
     participants: new Map(),
+    unsubscribedFrameCounts: new Map(),
     queue: Promise.resolve(),
     onAudioFrame: (frame) => {
       const state = session.participants.get(frame.participantId);
-      if (!state) return;
+      if (!state) {
+        const nextCount = (session.unsubscribedFrameCounts.get(frame.participantId) ?? 0) + 1;
+        session.unsubscribedFrameCounts.set(frame.participantId, nextCount);
+        if (nextCount === 1 || nextCount % 200 === 0) {
+          voiceTrace("audio frame for unsubscribed participant", {
+            sessionKey: session.key,
+            participantId: frame.participantId,
+            frameCount: nextCount,
+            subscribedUsers: Array.from(session.participants.keys()),
+          });
+        }
+        return;
+      }
       state.sampleRate = frame.sampleRate;
       state.channels = frame.channels;
       state.totalSamples += frame.samples.length;
@@ -591,7 +606,14 @@ function ensureResponderSession(params: {
     },
     onSpeakerStart: ({ participantId }) => {
       const state = session.participants.get(participantId);
-      if (!state) return;
+      if (!state) {
+        voiceTrace("speaker start for unsubscribed participant", {
+          sessionKey: session.key,
+          participantId,
+          subscribedUsers: Array.from(session.participants.keys()),
+        });
+        return;
+      }
       voiceTrace("speaker start", {
         sessionKey: session.key,
         participantId,
@@ -602,7 +624,14 @@ function ensureResponderSession(params: {
     },
     onSpeakerStop: ({ participantId }) => {
       const state = session.participants.get(participantId);
-      if (!state) return;
+      if (!state) {
+        voiceTrace("speaker stop for unsubscribed participant", {
+          sessionKey: session.key,
+          participantId,
+          subscribedUsers: Array.from(session.participants.keys()),
+        });
+        return;
+      }
       voiceTrace("speaker stop", {
         sessionKey: session.key,
         participantId,
@@ -630,8 +659,16 @@ function ensureResponderSession(params: {
   params.connection.on("speakerStop", session.onSpeakerStop);
   params.connection.on("disconnect", session.onDisconnect);
 
+  const room = (params.connection as any).room;
+  const remoteParticipantIds = room?.remoteParticipants
+    ? Array.from(room.remoteParticipants.keys())
+    : [];
+
   voiceResponderSessions.set(key, session);
-  voiceTrace("responder session active", { key });
+  voiceTrace("responder session active", {
+    key,
+    remoteParticipantIds,
+  });
   return session;
 }
 
@@ -848,6 +885,17 @@ export async function voiceSubscribeFluxer(params: {
     connection,
   });
 
+  const room = (connection as any).room;
+  const remoteParticipantIds = room?.remoteParticipants
+    ? Array.from(room.remoteParticipants.keys())
+    : [];
+  voiceTrace("subscribe remote participant snapshot", {
+    accountId,
+    sessionKey: session.key,
+    requestedUserId: params.userId,
+    remoteParticipantIds,
+  });
+
   const existing = session.participants.get(params.userId);
   if (existing) {
     voiceTrace("subscribe skipped: already subscribed", {
@@ -885,6 +933,7 @@ export async function voiceSubscribeFluxer(params: {
     sessionKey: session.key,
     userId: params.userId,
     activeSubscriptions,
+    remoteParticipantPresent: remoteParticipantIds.includes(params.userId),
   });
 
   return {
