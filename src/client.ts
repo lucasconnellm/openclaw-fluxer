@@ -20,6 +20,20 @@ export type FluxerSendTextResult = {
   timestamp?: number;
 };
 
+export type FluxerEditTextInput = {
+  channelId: string;
+  messageId: string;
+  text: string;
+  accountId?: string;
+  abortSignal?: AbortSignal;
+};
+
+export type FluxerEditTextResult = {
+  messageId: string;
+  chatId: string;
+  timestamp?: number;
+};
+
 export type FluxerSendMediaInput = {
   target: string;
   text?: string;
@@ -55,6 +69,7 @@ export type FluxerReactInput = {
 
 export type FluxerClient = {
   sendText: (input: FluxerSendTextInput) => Promise<FluxerSendTextResult>;
+  editText: (input: FluxerEditTextInput) => Promise<FluxerEditTextResult>;
   sendMedia: (input: FluxerSendMediaInput) => Promise<FluxerSendTextResult>;
   react: (input: FluxerReactInput) => Promise<void>;
   sendTyping: (params: { channelId: string; abortSignal?: AbortSignal }) => Promise<void>;
@@ -503,6 +518,33 @@ export function createFluxerClient(config: FluxerClientConfig): FluxerClient {
               messageId: sent.id,
               chatId: sent.channelId,
               timestamp: sent.createdAt?.getTime?.(),
+            };
+          } catch (error) {
+            throw formatError(error);
+          } finally {
+            await client.destroy().catch(() => undefined);
+          }
+        },
+        { abortSignal: input.abortSignal },
+      );
+    },
+
+    editText: async (input) => {
+      const body = input.text.trim();
+      if (!body) {
+        throw new Error("Fluxer editText requires non-empty text");
+      }
+
+      return withRetry(
+        async () => {
+          const client = createCoreClient(config);
+          try {
+            const message = await client.fetchMessage(input.channelId, input.messageId);
+            const edited = await message.edit({ content: body });
+            return {
+              messageId: edited.id,
+              chatId: edited.channelId,
+              timestamp: edited.editedAt?.getTime?.() ?? edited.createdAt?.getTime?.(),
             };
           } catch (error) {
             throw formatError(error);

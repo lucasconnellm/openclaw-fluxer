@@ -62,6 +62,17 @@ export type FluxerAccountConfig = {
       };
     };
   };
+  /** Streaming draft preview behavior for model output. */
+  streaming?: {
+    enabled?: boolean;
+    mode?: "partial" | "block";
+    /** Minimum text delta before a preview edit is attempted. */
+    minCharsDelta?: number;
+    /** Minimum time between preview edits in milliseconds. */
+    idleMs?: number;
+    /** Hard cap for preview edits per response. */
+    maxEdits?: number;
+  };
 };
 
 export type FluxerConfig = {

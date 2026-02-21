@@ -96,6 +96,53 @@ export async function sendMessageFluxer(
   };
 }
 
+export async function editMessageFluxer(
+  params: {
+    channelId: string;
+    messageId: string;
+    text: string;
+  },
+  opts: SendFluxerOpts = {},
+): Promise<{
+  messageId: string;
+  chatId: string;
+  timestamp?: number;
+  meta?: Record<string, unknown>;
+}> {
+  const { runtime, account, client } = resolveClientDeps(opts);
+
+  const channelId = params.channelId.trim();
+  const messageId = params.messageId.trim();
+  const text = params.text.trim();
+  if (!channelId) throw new Error("Fluxer edit requires channelId");
+  if (!messageId) throw new Error("Fluxer edit requires messageId");
+  if (!text) throw new Error("Fluxer edit requires text");
+
+  const result = await client.editText({
+    channelId,
+    messageId,
+    text,
+    accountId: account.accountId,
+  });
+
+  runtime.channel.activity.record({
+    channel: "fluxer",
+    accountId: account.accountId,
+    direction: "outbound",
+  });
+
+  return {
+    messageId: result.messageId,
+    chatId: result.chatId,
+    timestamp: result.timestamp,
+    meta: {
+      channelId,
+      messageId,
+      accountId: account.accountId,
+    },
+  };
+}
+
 export async function sendMediaFluxer(
   params: {
     to: string;
