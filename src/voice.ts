@@ -1,4 +1,4 @@
-import { Client } from "@fluxerjs/core";
+import { Client, Events } from "@fluxerjs/core";
 import { getVoiceManager } from "@fluxerjs/voice";
 import { resolveFluxerAccount } from "./accounts.js";
 import { getFluxerRuntime } from "./runtime.js";
@@ -26,6 +26,36 @@ function resolveRestApiAndVersion(baseUrl: string): { api: string; version: stri
   return { api: `${parsed.origin}${rawPath}`, version: "1" };
 }
 
+async function waitForClientReady(client: Client, timeoutMs = 15_000): Promise<void> {
+  if ((client as any).isReady?.()) return;
+
+  await new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      cleanup();
+      reject(new Error(`Fluxer voice client did not become ready within ${timeoutMs}ms`));
+    }, timeoutMs);
+
+    const onReady = () => {
+      cleanup();
+      resolve();
+    };
+
+    const onError = (err: unknown) => {
+      cleanup();
+      reject(err instanceof Error ? err : new Error(String(err)));
+    };
+
+    const cleanup = () => {
+      clearTimeout(timer);
+      (client as any).off?.(Events.Ready, onReady);
+      (client as any).off?.(Events.Error as any, onError);
+    };
+
+    client.once(Events.Ready as any, onReady);
+    client.once(Events.Error as any, onError);
+  });
+}
+
 async function ensureVoiceClient(accountId?: string): Promise<{ accountId: string; client: Client }> {
   const runtime = getFluxerRuntime();
   const cfg = runtime.config.loadConfig();
@@ -39,6 +69,7 @@ async function ensureVoiceClient(accountId?: string): Promise<{ accountId: strin
 
   const existing = voiceClients.get(account.accountId);
   if (existing) {
+    await waitForClientReady(existing.client).catch(() => undefined);
     return { accountId: account.accountId, client: existing.client };
   }
 
@@ -55,6 +86,7 @@ async function ensureVoiceClient(accountId?: string): Promise<{ accountId: strin
 
   client.rest.setToken(apiToken);
   await client.login(apiToken);
+  await waitForClientReady(client);
   voiceClients.set(account.accountId, { client, connectedAt: Date.now() });
 
   return { accountId: account.accountId, client };
