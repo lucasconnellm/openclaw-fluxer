@@ -83,10 +83,19 @@ Use OpenClaw’s JSON config format. Set your `fluxer` block like this:
       "maxDelayMs": 30000,
       "maxAttempts": 0,
       "jitterRatio": 0.2
+    },
+    "streaming": {
+      "enabled": false,
+      "mode": "partial",
+      "minCharsDelta": 40,
+      "idleMs": 700,
+      "maxEdits": 40
     }
   }
 }
 ```
+
+`streaming` enables draft preview edits while a response is generating. Start with `enabled: false` and enable per account after validation.
 
 You can also use env vars (default account only):
 
@@ -103,6 +112,7 @@ You can also use env vars (default account only):
 - ✅ outbound media supports native URL attachments via @fluxerjs/core file payloads
 - ✅ outbound reactions wired (`react` action)
 - ⚠️ slash command registration is experimental (`slashCommandPrefixes`, default tries `/models`)
+- ⚠️ streaming draft previews are experimental (`streaming` config; partial/block modes)
 - ⚠️ voice support is highly experimental and currently unreliable on official Fluxer.app servers
 - ⚠️ thread routing parity not complete
 
