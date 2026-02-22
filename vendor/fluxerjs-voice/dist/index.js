@@ -499,6 +499,7 @@ var import_node_util = require("util");
 var import_mp4box = require("mp4box");
 var SAMPLE_RATE = 48e3;
 var CHANNELS2 = 1;
+var RECEIVE_READ_TIMEOUT_MS = 100;
 function getNaluByteLength(nalu) {
   if (ArrayBuffer.isView(nalu)) return nalu.byteLength;
   if (nalu instanceof ArrayBuffer) return nalu.byteLength;
@@ -606,6 +607,7 @@ var LiveKitRtcConnection = class extends import_events2.EventEmitter {
   lastServerToken = null;
   _disconnectEmitted = false;
   receiveSubscriptions = /* @__PURE__ */ new Map();
+  requestedSubscriptions = /* @__PURE__ */ new Map();
   participantTrackSids = /* @__PURE__ */ new Map();
   activeSpeakers = /* @__PURE__ */ new Set();
   /**
@@ -624,9 +626,7 @@ var LiveKitRtcConnection = class extends import_events2.EventEmitter {
     return this._playing;
   }
   debug(msg, data) {
-    if (VOICE_DEBUG) {
-      console.debug("[voice LiveKitRtc]", msg, data ?? "");
-    }
+    console.error("[voice LiveKitRtc]", msg, data ?? "");
   }
   audioDebug(msg, data) {
     if (VOICE_DEBUG) {
@@ -666,9 +666,10 @@ var LiveKitRtcConnection = class extends import_events2.EventEmitter {
   getParticipantId(participant) {
     return participant.identity;
   }
-  subscribeParticipantTrack(participant, track) {
+  subscribeParticipantTrack(participant, track, options = {}) {
     if (!this.isAudioTrack(track)) return;
     const participantId = this.getParticipantId(participant);
+    if (!options.autoSubscribe && !this.requestedSubscriptions.has(participantId)) return;
     const current = this.receiveSubscriptions.get(participantId);
     if (current) current.stop();
     const audioStream = new import_rtc_node.AudioStream(track, {
@@ -677,11 +678,21 @@ var LiveKitRtcConnection = class extends import_events2.EventEmitter {
       frameSizeMs: 10
     });
     let stopped = false;
+    let reader = null;
     const pump = async () => {
       try {
-        const reader = audioStream.getReader();
+        reader = audioStream.getReader();
         while (!stopped) {
-          const { done, value } = await reader.read();
+          let readTimeout = null;
+          const next = await Promise.race([
+            reader.read(),
+            new Promise((resolve) => {
+              readTimeout = setTimeout(() => resolve(null), RECEIVE_READ_TIMEOUT_MS);
+            })
+          ]);
+          if (readTimeout) clearTimeout(readTimeout);
+          if (next === null) continue;
+          const { done, value } = next;
           if (done || !value) break;
           this.emit("audioFrame", {
             participantId,
@@ -695,10 +706,27 @@ var LiveKitRtcConnection = class extends import_events2.EventEmitter {
         if (!stopped) {
           this.emit("error", err instanceof Error ? err : new Error(String(err)));
         }
+      } finally {
+        if (reader) {
+          try {
+            reader.releaseLock();
+          } catch {
+          }
+          reader = null;
+        }
       }
     };
     const stop = () => {
+      if (stopped) return;
       stopped = true;
+      if (reader) {
+        reader.cancel().catch(() => {
+        });
+        try {
+          reader.releaseLock();
+        } catch {
+        }
+      }
       audioStream.cancel().catch(() => {
       });
       this.receiveSubscriptions.delete(participantId);
@@ -708,11 +736,14 @@ var LiveKitRtcConnection = class extends import_events2.EventEmitter {
     void pump();
   }
   subscribeParticipantAudio(participantId, options = {}) {
+    const autoResubscribe = options.autoResubscribe === true;
     const stop = () => {
       this.receiveSubscriptions.get(participantId)?.stop();
       this.receiveSubscriptions.delete(participantId);
       this.participantTrackSids.delete(participantId);
+      this.requestedSubscriptions.delete(participantId);
     };
+    this.requestedSubscriptions.set(participantId, autoResubscribe);
     const room = this.room;
     if (!room || !room.isConnected) return { participantId, stop };
     const participant = room.remoteParticipants.get(participantId);
@@ -724,14 +755,12 @@ var LiveKitRtcConnection = class extends import_events2.EventEmitter {
         break;
       }
     }
-    if (options.autoResubscribe === false && !this.receiveSubscriptions.has(participantId)) {
-      return { participantId, stop };
-    }
     return { participantId, stop };
   }
   clearReceiveSubscriptions() {
     for (const sub of this.receiveSubscriptions.values()) sub.stop();
     this.receiveSubscriptions.clear();
+    this.requestedSubscriptions.clear();
     this.participantTrackSids.clear();
     this.activeSpeakers.clear();
   }
@@ -782,12 +811,18 @@ var LiveKitRtcConnection = class extends import_events2.EventEmitter {
         const participantId = this.getParticipantId(participant);
         this.receiveSubscriptions.get(participantId)?.stop();
         this.receiveSubscriptions.delete(participantId);
+        if (this.requestedSubscriptions.get(participantId) !== true) {
+          this.requestedSubscriptions.delete(participantId);
+        }
         this.participantTrackSids.delete(participantId);
       });
       room.on(import_rtc_node.RoomEvent.ParticipantDisconnected, (participant) => {
         const participantId = this.getParticipantId(participant);
         this.receiveSubscriptions.get(participantId)?.stop();
         this.receiveSubscriptions.delete(participantId);
+        if (this.requestedSubscriptions.get(participantId) !== true) {
+          this.requestedSubscriptions.delete(participantId);
+        }
         this.participantTrackSids.delete(participantId);
         if (this.activeSpeakers.delete(participantId)) {
           this.emit("speakerStop", { participantId });
