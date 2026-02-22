@@ -422,6 +422,7 @@ export function createFluxerClient(config: FluxerClientConfig): FluxerClient {
           const client = createCoreClient(config);
           try {
             const target = parseTarget(input.target);
+            const payload = { content: body };
 
             if (target.kind === "user") {
               const user = await client.users.fetch(target.id);
@@ -432,10 +433,10 @@ export function createFluxerClient(config: FluxerClientConfig): FluxerClient {
                   const original = await client.fetchMessage(dm.id, input.replyToId);
                   sent = await original.reply(body);
                 } catch {
-                  sent = await dm.send(body);
+                  sent = await dm.send(payload);
                 }
               } else {
-                sent = await dm.send(body);
+                sent = await dm.send(payload);
               }
               return {
                 messageId: sent.id,
@@ -451,10 +452,10 @@ export function createFluxerClient(config: FluxerClientConfig): FluxerClient {
                 const original = await client.fetchMessage(channelId, input.replyToId);
                 sent = await original.reply(body);
               } catch {
-                sent = await client.channels.send(channelId, body);
+                sent = await client.channels.send(channelId, payload);
               }
             } else {
-              sent = await client.channels.send(channelId, body);
+              sent = await client.channels.send(channelId, payload);
             }
 
             return {
