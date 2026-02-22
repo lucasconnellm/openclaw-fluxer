@@ -42,6 +42,37 @@ export type FluxerAccountConfig = {
   authScheme?: string;
   /** Optional slash command prefixes to register (e.g. ["models"]). */
   slashCommandPrefixes?: string[];
+  /** Discord-compatible voice config shape for standardization. */
+  voice?: {
+    enabled?: boolean;
+    autoJoin?: Array<{
+      guildId: string;
+      channelId: string;
+    }>;
+    /** User IDs to auto-subscribe for voice responder mode after auto-join. */
+    autoSubscribeUsers?: string[];
+    /** Minimum buffered speech duration required by sample-count gate. Default: 250ms. */
+    minUtteranceMs?: number;
+    /** Time-based fallback gate: if speaking duration reaches this, process even with sparse samples. Default: 2500ms. */
+    minUtteranceFallbackMs?: number;
+    tts?: {
+      provider?: string;
+      openai?: {
+        voice?: string;
+      };
+    };
+  };
+  /** Streaming draft preview behavior for model output. */
+  streaming?: {
+    enabled?: boolean;
+    mode?: "partial" | "block";
+    /** Minimum text delta before a preview edit is attempted. */
+    minCharsDelta?: number;
+    /** Minimum time between preview edits in milliseconds. */
+    idleMs?: number;
+    /** Hard cap for preview edits per response. */
+    maxEdits?: number;
+  };
 };
 
 export type FluxerConfig = {

@@ -20,6 +20,20 @@ export type FluxerSendTextResult = {
   timestamp?: number;
 };
 
+export type FluxerEditTextInput = {
+  channelId: string;
+  messageId: string;
+  text: string;
+  accountId?: string;
+  abortSignal?: AbortSignal;
+};
+
+export type FluxerEditTextResult = {
+  messageId: string;
+  chatId: string;
+  timestamp?: number;
+};
+
 export type FluxerSendMediaInput = {
   target: string;
   text?: string;
@@ -55,6 +69,7 @@ export type FluxerReactInput = {
 
 export type FluxerClient = {
   sendText: (input: FluxerSendTextInput) => Promise<FluxerSendTextResult>;
+  editText: (input: FluxerEditTextInput) => Promise<FluxerEditTextResult>;
   sendMedia: (input: FluxerSendMediaInput) => Promise<FluxerSendTextResult>;
   react: (input: FluxerReactInput) => Promise<void>;
   sendTyping: (params: { channelId: string; abortSignal?: AbortSignal }) => Promise<void>;
@@ -358,10 +373,51 @@ export function resolveChatType(message: Message): "direct" | "group" | "channel
   return "channel";
 }
 
+// Fluxer CDN URL for user content (stickers, attachments, etc.)
+const FLUXER_CDN_URL = "https://fluxerusercontent.com";
+
+function stickerUrl(stickerId: string, animated: boolean): string {
+  const ext = animated ? "gif" : "png";
+  return `${FLUXER_CDN_URL}/stickers/${stickerId}.${ext}`;
+}
+
+function stickerUrls(message: Message): string[] {
+  return message.stickers.map((sticker) => stickerUrl(sticker.id, sticker.animated ?? false));
+}
+
 function attachmentUrls(message: Message): string[] {
   return Array.from(message.attachments.values())
     .map((attachment) => (typeof attachment.url === "string" ? attachment.url.trim() : ""))
     .filter(Boolean);
+}
+
+function extractUrlsFromText(text: string): string[] {
+  const matches = text.match(/https?:\/\/[^\s<>()]+/gi) ?? [];
+  return matches
+    .map((url) => url.replace(/[),.;!?]+$/g, "").trim())
+    .filter(Boolean);
+}
+
+function isGifLikeUrl(url: string): boolean {
+  const lower = url.toLowerCase();
+  if (/\.gif(?:$|[?#])/i.test(lower)) return true;
+  if (lower.includes("tenor.com")) return true;
+  if (lower.includes("giphy.com")) return true;
+  return false;
+}
+
+function gifUrlsFromContent(message: Message): string[] {
+  const content = typeof message.content === "string" ? message.content : "";
+  if (!content.trim()) return [];
+  return extractUrlsFromText(content).filter(isGifLikeUrl);
+}
+
+export function collectMediaUrls(message: Message): string[] {
+  const attachments = attachmentUrls(message);
+  const stickers = stickerUrls(message);
+  const gifsFromContent = gifUrlsFromContent(message);
+  // Dedupe while preserving order (attachments first, then stickers, then gif-like links in text)
+  return [...new Set([...attachments, ...stickers, ...gifsFromContent])];
 }
 
 function formatError(error: unknown): FluxerApiError {
@@ -461,6 +517,33 @@ export function createFluxerClient(config: FluxerClientConfig): FluxerClient {
               messageId: sent.id,
               chatId: sent.channelId,
               timestamp: sent.createdAt?.getTime?.(),
+            };
+          } catch (error) {
+            throw formatError(error);
+          } finally {
+            await client.destroy().catch(() => undefined);
+          }
+        },
+        { abortSignal: input.abortSignal },
+      );
+    },
+
+    editText: async (input) => {
+      const body = input.text.trim();
+      if (!body) {
+        throw new Error("Fluxer editText requires non-empty text");
+      }
+
+      return withRetry(
+        async () => {
+          const client = createCoreClient(config);
+          try {
+            const message = await client.fetchMessage(input.channelId, input.messageId);
+            const edited = await message.edit({ content: body });
+            return {
+              messageId: edited.id,
+              chatId: edited.channelId,
+              timestamp: edited.editedAt?.getTime?.() ?? edited.createdAt?.getTime?.(),
             };
           } catch (error) {
             throw formatError(error);
@@ -686,7 +769,7 @@ export function createFluxerClient(config: FluxerClientConfig): FluxerClient {
             senderName: message.author.globalName ?? message.author.username,
             text: message.content ?? "",
             timestamp: message.createdAt?.getTime?.() ?? Date.now(),
-            attachments: attachmentUrls(message).map((url) => ({ url })),
+            attachments: collectMediaUrls(message).map((url) => ({ url })),
           },
         };
         return Promise.resolve(onEvent(rawEvent));
