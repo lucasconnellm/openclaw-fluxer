@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.5.0](https://github.com/lucasconnellm/openclaw-fluxer/compare/v0.4.0...v0.5.0) (2026-02-22)
+
+
+### Features
+
+* **inbound:** ingest gif and sticker media URLs ([c51deba](https://github.com/lucasconnellm/openclaw-fluxer/commit/c51deba76896c38e74db83240f0636b7c65f8080))
+* **streaming:** add draft preview message updates ([3820b1a](https://github.com/lucasconnellm/openclaw-fluxer/commit/3820b1ace1a33be0f7d794b67169bf997de3c98e))
+* **voice:** add live subscriptions and responder controls ([45cb7d3](https://github.com/lucasconnellm/openclaw-fluxer/commit/45cb7d30b40df990eae9fc7940bb5fa6bc01685a))
+* **voice:** add voice actions and configuration scaffolding ([0c0397a](https://github.com/lucasconnellm/openclaw-fluxer/commit/0c0397a1bee50b383c8780832a057d8450f273bc))
+
+
+### Bug Fixes
+
+* use message payload object for fluxer sendText ([d274450](https://github.com/lucasconnellm/openclaw-fluxer/commit/d274450609604fc4b456ff0a742c5baddb9a328d))
+* **voice:** harden gateway readiness before voice join ([e6b69cd](https://github.com/lucasconnellm/openclaw-fluxer/commit/e6b69cd40f04ba56dd4abe576e26193c210f8888))
+* **voice:** transcode telephony PCM tts with ffmpeg ([9c10f22](https://github.com/lucasconnellm/openclaw-fluxer/commit/9c10f2264b7940c9f1ee8e72344ecc47cb8f4323))
+
 ## [0.4.0](https://github.com/lucasconnellm/openclaw-fluxer/compare/v0.3.0...v0.4.0) (2026-02-20)
 
 
