@@ -44,6 +44,7 @@ type VoiceResponderSession = {
   guildId: string;
   channelId: string;
   connection: LiveKitRtcConnection;
+  botUserId?: string;
   participants: Map<string, ParticipantAudioState>;
   aliases: Map<string, string>;
   unsubscribedFrameCounts: Map<string, number>;
@@ -170,6 +171,32 @@ function resolveLiveKitParticipantId(params: {
   if (tokenMatch) return tokenMatch;
 
   return requested;
+}
+
+function idsLikelyMatch(participantId: string, userId: string): boolean {
+  const left = participantId.trim();
+  const right = userId.trim();
+  if (!left || !right) return false;
+  if (left === right) return true;
+
+  const leftCanonical = canonicalId(left);
+  const rightCanonical = canonicalId(right);
+  if (leftCanonical === rightCanonical) return true;
+
+  if (left.includes(right) || right.includes(left)) return true;
+
+  const leftTokens = extractNumericTokens(left);
+  const rightTokens = extractNumericTokens(right);
+  if (leftTokens.some((token) => token === right)) return true;
+  if (rightTokens.some((token) => token === left)) return true;
+  if (leftTokens.some((token) => rightTokens.includes(token))) return true;
+
+  return false;
+}
+
+function isBotParticipantIdentity(session: VoiceResponderSession, participantId: string): boolean {
+  if (!session.botUserId) return false;
+  return idsLikelyMatch(participantId, session.botUserId);
 }
 
 function resolveParticipantStateForIncoming(
@@ -712,11 +739,15 @@ function ensureResponderSession(params: {
   guildId: string;
   channelId: string;
   connection: LiveKitRtcConnection;
+  botUserId?: string;
 }): VoiceResponderSession {
   const key = toSessionKey(params.accountId, params.guildId, params.channelId);
   const existing = voiceResponderSessions.get(key);
   if (existing && existing.connection === params.connection) {
-    voiceTrace("reusing existing responder session", { key });
+    if (params.botUserId && !existing.botUserId) {
+      existing.botUserId = params.botUserId;
+    }
+    voiceTrace("reusing existing responder session", { key, botUserId: existing.botUserId });
     return existing;
   }
   if (existing) {
@@ -737,11 +768,16 @@ function ensureResponderSession(params: {
     guildId: params.guildId,
     channelId: params.channelId,
     connection: params.connection,
+    botUserId: params.botUserId,
     participants: new Map(),
     aliases: new Map(),
     unsubscribedFrameCounts: new Map(),
     queue: Promise.resolve(),
     onAudioFrame: (frame) => {
+      if (isBotParticipantIdentity(session, frame.participantId)) {
+        return;
+      }
+
       const state = resolveParticipantStateForIncoming(session, frame.participantId);
       if (!state) {
         const nextCount = (session.unsubscribedFrameCounts.get(frame.participantId) ?? 0) + 1;
@@ -794,6 +830,10 @@ function ensureResponderSession(params: {
       }
     },
     onSpeakerStart: ({ participantId }) => {
+      if (isBotParticipantIdentity(session, participantId)) {
+        return;
+      }
+
       const state = resolveParticipantStateForIncoming(session, participantId);
       if (!state) {
         voiceTrace(`speaker start for unsubscribed participant: ${participantId}`, {
@@ -832,6 +872,10 @@ function ensureResponderSession(params: {
       state.lastUtteranceDurationMs = undefined;
     },
     onSpeakerStop: ({ participantId }) => {
+      if (isBotParticipantIdentity(session, participantId)) {
+        return;
+      }
+
       const state = resolveParticipantStateForIncoming(session, participantId);
       if (!state) {
         voiceTrace(`speaker stop for unsubscribed participant: ${participantId}`, {
@@ -900,6 +944,7 @@ function ensureResponderSession(params: {
   voiceResponderSessions.set(key, session);
   voiceTrace("responder session active", {
     key,
+    botUserId: session.botUserId,
     remoteParticipantIds,
   });
   return session;
@@ -1116,6 +1161,7 @@ export async function voiceSubscribeFluxer(params: {
     guildId: params.guildId,
     channelId: params.channelId,
     connection,
+    botUserId: client.user?.id,
   });
 
   const room = (connection as any).room;
