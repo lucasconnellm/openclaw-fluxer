@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.1](https://github.com/lucasconnellm/openclaw-fluxer/compare/v0.4.0...v0.4.1) (2026-02-22)
+
+
+### Bug Fixes
+
+* use message payload object for fluxer sendText ([d274450](https://github.com/lucasconnellm/openclaw-fluxer/commit/d274450609604fc4b456ff0a742c5baddb9a328d))
+
 ## [0.4.0](https://github.com/lucasconnellm/openclaw-fluxer/compare/v0.3.0...v0.4.0) (2026-02-20)
 
 
