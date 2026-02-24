@@ -350,6 +350,23 @@ function inferFilenameFromUrl(rawUrl: string): string {
   return "attachment";
 }
 
+async function sendToChannelWithReplyFallback(
+  client: Client,
+  channelId: string,
+  payload: { content?: string; files?: Array<{ name: string; url: string }> },
+  replyToId?: string,
+) {
+  if (replyToId) {
+    try {
+      const original = await client.fetchMessage(channelId, replyToId);
+      return await original.reply(payload);
+    } catch {
+      // best-effort reply fallback
+    }
+  }
+  return await client.channels.send(channelId, payload);
+}
+
 function normalizeCommandPrefix(raw: string): string | null {
   const trimmed = raw.trim().replace(/^\/+/, "").toLowerCase();
   if (!trimmed) return null;
@@ -502,17 +519,12 @@ export function createFluxerClient(config: FluxerClientConfig): FluxerClient {
             }
 
             const channelId = target.id;
-            let sent;
-            if (input.replyToId) {
-              try {
-                const original = await client.fetchMessage(channelId, input.replyToId);
-                sent = await original.reply(body);
-              } catch {
-                sent = await client.channels.send(channelId, payload);
-              }
-            } else {
-              sent = await client.channels.send(channelId, payload);
-            }
+            const sent = await sendToChannelWithReplyFallback(
+              client,
+              channelId,
+              payload,
+              input.replyToId,
+            );
 
             return {
               messageId: sent.id,
@@ -599,17 +611,12 @@ export function createFluxerClient(config: FluxerClientConfig): FluxerClient {
             }
 
             const channelId = target.id;
-            let sent;
-            if (input.replyToId) {
-              try {
-                const original = await client.fetchMessage(channelId, input.replyToId);
-                sent = await original.reply(payload);
-              } catch {
-                sent = await client.channels.send(channelId, payload);
-              }
-            } else {
-              sent = await client.channels.send(channelId, payload);
-            }
+            const sent = await sendToChannelWithReplyFallback(
+              client,
+              channelId,
+              payload,
+              input.replyToId,
+            );
 
             return {
               messageId: sent.id,
